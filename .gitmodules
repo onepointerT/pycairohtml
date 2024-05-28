@@ -1,0 +1,7 @@
+[submodule "cacao"]
+	path = cacao
+	url = https://github.com/onepointerT/cacao.git
+
+[submodule "pycairo"]
+	path = pycairo
+	url = https://github.com/pygobject/pycairo.git
