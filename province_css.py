@@ -1,6 +1,6 @@
+
 import os.path
 from enum import Enum
-from os import path
 from .html import HtmlTag
 from .util import hex_to_int
 from ..pycairo.cairo import FontSlant, FontWeight, FontOptions, LineCap, LineJoin, Context, Surface
@@ -207,6 +207,53 @@ class CssClass:
         self.classnames = parsed['cssclass']['classnames']
         self.htmltag = parsed['cssclass']['html_tags']
         self.attributes = parsed['attrs']
+
+
+class CssAttributeSelector:
+    funcname = ''
+    eq = None
+    def __init__(self, attr_str: str):
+        attrs = self.parse(attr_str)
+        self.funcname = attrs['funcname']
+        self.eq = CssEquation(attrs['eqstr'])
+
+    @staticmethod
+    def parse(attr_str: str) -> dict:
+        pos_left_bracket = attr_str.find('[')
+        pos_right_bracket = attr_str.find(']')
+
+        funcname = attr_str[:pos_left_bracket-1]
+        eqstr = attr_str[pos_left_bracket+1:pos_right_bracket-1]
+
+        return dict(funcname=funcname, eqstr=eqstr)
+
+
+class CssClassSelector:
+    attr = ''
+
+    def __init__(self, cls_str: str):
+        self.attr = self.parse(cls_str)
+
+    @staticmethod
+    def parse(cls_str: str) -> str:
+        pos_double_point = cls_str.find(':')
+
+        reststr = cls_str[pos_double_point+1:]
+        for idx, char in enumerate(reststr):
+            if char.isalpha():
+                continue
+            else:
+                return reststr[:idx-1]
+        return str()
+
+
+class CssEquation:
+
+    def __init__(self, eq_str: str):
+        pass
+
+    @staticmethod
+    def parse(self, eq_str: str):
 
 
 class CssFile:

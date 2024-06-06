@@ -1,6 +1,6 @@
 
-from ..context import PixContext
 from .cacao import Cacao, Stack, cacao
+from .util import HtmlTagBasic
 
 
 class HtmlSourceEnvironment(Cacao.Environment):
@@ -22,17 +22,18 @@ class HtmlSourceEnvironment(Cacao.Environment):
 cacao_html = HtmlSourceEnvironment()
 
 
-class HtmlTag:
+class HtmlTag(HtmlTagBasic):
     tagname = ''
     tagname_cairo = ''
     classes = ''
     content = ''
-    childs = [HtmlTag]
+    childs = []
 
     pre_tag = ''
     post_tag =''
 
     def __init__(self, tagname: str, classes: str, content: str, pre: str = '', post: str = ''):
+        super().__init__(content)
         self.tagname = tagname
         self.tagname_cairo = str()
         self.classes = classes
@@ -40,6 +41,9 @@ class HtmlTag:
         self.children = self.scan_for_children(content)
         self.pre_tag = pre
         self.post_tag = post
+
+    def __iter__(self):
+        return self.childs
 
     def has_child_tags(self):
         return len(self.children) > 1
