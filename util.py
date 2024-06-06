@@ -1,11 +1,30 @@
 
 from abc import ABC, abstractmethod
 import os.path
-from typing import Callable
+from typing import Any, Callable
 
 
 def hex_to_int(hex: str) -> int:
     return int(hex, 16)
+
+
+def intersection(l1: list, l2: list) -> list:
+    match = list()
+    for e in l1:
+        if e in l2:
+            match += e
+    return match
+
+
+def notin(l1: list, l2: list) -> list:
+    intersec = intersection(l1, l2)
+    both = l1 + l2
+    match = list()
+    for idx, e in enumerate(both):
+        if e not in intersec:
+            match += e
+            continue
+    return match
 
 
 class HtmlTagBasic(str):
@@ -21,6 +40,12 @@ class HtmlTagBasic(str):
         self.join(dct['tagname'])
         self.attrs = dct['attrs']
         self.closing = dct['closing']
+
+    def findattr(self, attrkey: str) -> str:
+        for attr in self.attrs:
+            if HtmlTagBasic.attr_key(attr) is attrkey:
+                return attrkey
+        return str()
 
     @staticmethod
     def parse_tag(tag_str: str):
@@ -39,7 +64,25 @@ class HtmlTagBasic(str):
 
         return dct
 
+    @staticmethod
+    def attr_key(attr: str) -> str:
+        pos_equiv = attr.find('=')
+        if pos_equiv is -1:
+            return str()
+        return attr[:pos_equiv-1]
+
+    @staticmethod
+    def attr_val(attr: str) -> str:
+        pos_opening = attr.find('"')
+        pos_closing = attr.find('"', pos_opening)
+        if pos_opening is -1 or pos_closing is -1:
+            return str()
+        return attr[pos_opening+1:pos_closing-1]
+
     def scan_for_children(self):
+        if len(self.children_tags) > 0:
+            return
+
         self.children_tags = HtmlDoc(self.content_doc)
 
         for chld in self.children_tags:
@@ -125,14 +168,12 @@ class Equation:
         self.operand2 = op2
         self.op = op
 
-    def
-
 
 class Operator:
     op = ''
     opfunc = None
 
-    def __init__(self, opstr: str, opfunc: Callable[[str, str], bool]):
+    def __init__(self, opstr: str, opfunc: Callable[[str, str, ...], bool]):
         self.op = opstr
         self.opfunc = opfunc
 
@@ -161,7 +202,7 @@ class Function:
     parameters = list(str)
     func = None
 
-    def __init__(self, funcstr: str, func: Callable[[[str]], list] = None):
+    def __init__(self, funcstr: str, func: Callable[..., Any] = None):
         funcattrs = self.parse(funcstr)
         self.funcname = funcattrs['funcname']
         self.parameters = funcattrs['parameters']
@@ -183,7 +224,6 @@ class Function:
 
         return dict(funcname=funcstr[:pos_opening_bracket-1], parameters=parameters)
 
-
     @staticmethod
     def parse_parameters(parameters_str: str) -> list(str):
         if parameters_str.__contains__(','):
@@ -199,7 +239,7 @@ class Function:
 
 
 class Functions(dict):
-    def register(self, funcstr: str, func: Callable[[[str]], list] = None):
+    def register(self, funcstr: str, func: Callable[..., Any] = None):
         func = Function(funcstr, func)
         self[func.funcname] = func
 
