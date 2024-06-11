@@ -143,14 +143,14 @@ class CssFunction(Function):
         super().__init__(funcstr, func)
 
 
-class CssFunctions(dict): # S. 137ff "Structural Pseudo Classes"
+class CssFunctions(dict):  # S. 137ff "Structural Pseudo Classes"
     def __init__(self):
         super().__init__()
         self.registerall()
 
     def register(self, funcstr: str, func: Callable[..., Any] = None):
-        func = CssFunction(funcstr, func)
-        self[func.funcname] = func
+        css_func = CssFunction(funcstr, func)
+        self[css_func.funcname] = css_func
 
     def register(self, func_css: CssFunction):
         self[func_css.funcname] = func_css
@@ -297,4 +297,34 @@ class CssFunctions(dict): # S. 137ff "Structural Pseudo Classes"
         self.register(CssFunction('not', CssFunctions.no))
 
 
-css_functions = CssFunctions
+css_functions = CssFunctions()
+
+
+class CssSelectorFunction(Function):
+    def __init__(self, funcstr: str, func: Callable[[HtmlTagBasic], Any]):
+        super().__init__(funcstr, func)
+
+    def eval(self, html: HtmlTagBasic):
+        return self.func(html)
+
+
+class CssSelectorFunctions(dict):  # S. 135ff "Pseudo-classes"
+    def __init__(self):
+        super().__init__()
+        self.registerall()
+
+    def register(self, func_css: CssSelectorFunction):
+        self[func_css.funcname] = func_css
+
+    def register(self, funcname: str, func: Callable[[HtmlTagBasic], Any]):
+        css_func = CssSelectorFunction(funcname, func)
+        self.register(css_func)
+
+    def eval(self, funcname: str, html: HtmlTagBasic):
+        return self[funcname].eval(html)
+
+    def registerall(self):
+        pass
+
+
+css_selectors = CssSelectorFunctions()

@@ -8,6 +8,16 @@ def hex_to_int(hex: str) -> int:
     return int(hex, 16)
 
 
+def int_to_hex(integer: int) -> str:
+    return str(hex(integer))
+
+
+def ifnonot(o: Any) -> str:
+    if o is not None:
+        return str(o)
+    return str()
+
+
 def intersection(l1: list, l2: list) -> list:
     match = list()
     for e in l1:

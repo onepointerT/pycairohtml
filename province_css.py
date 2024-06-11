@@ -2,7 +2,8 @@
 import os.path
 from enum import Enum
 from .html import HtmlTag
-from .util import hex_to_int
+from .util import hex_to_int, int_to_hex, ifnonot
+from .utilcss import HtmlTagBasic, css_functions, css_operators, css_selectors
 from ..pycairo.cairo import FontSlant, FontWeight, FontOptions, LineCap, LineJoin, Context, Surface
 
 
@@ -18,22 +19,63 @@ class Color:
     def b(self): return self.blue
     def a(self): return self.alpha
 
+    def to_colorcode(self):
+        r = int_to_hex(int(self.red))
+        g = int_to_hex(int(self.green))
+        b = int_to_hex(int(self.blue))
+        return ColorCode('#' + r + g + b)
+
+
+class ColorCode:
+    code = str()
+
+    def __init__(self, color_code: str = '#ffffff'):
+        self.code = color_code
+        if color_code[0] is not '#' or len(color_code) is not 7:
+            raise TypeError("'{0}' is not a color code.".format(color_code))
+
+    def to_rgba(self):
+        r = hex_to_int(self.code[1:2])
+        g = hex_to_int(self.code[3:4])
+        b = hex_to_int(self.code[5:6])
+        return Color(r, g, b, 1.0)
+
 
 class Colors(Enum):
     default_black = Color(27.0, 25.0, 23.0, 0.8)
 
 
 class Font(FontOptions):
-    family: ''
+    class Style:
+        normal = 0,
+        italic = 1,
+        bold = 2,
+        underlined = 3,
+        italicbold = 4,
+        italicunderlined = 5,
+        boldunderlined = 6,
+        italicboldunderlined = 7
+
+
+    class Family:
+        serif = 0,
+        sans = 1,
+        sansserif = 2,
+        monospace = 3,
+        cursive = 4
+
+    name: ''
+    family: Family.serif
     italic: FontSlant.NORMAL
     bold: FontWeight.NORMAL
     fontsize: 13.0
     color: Colors.default_black
 
-    def __init__(self, font_family: str, fontsize: float = 13.0):
+    def __init__(self, font_name: str, font_family: Family, font_size: float = 13.0):
         super().__init__()
+        self.name = font_name
         self.family = font_family
-        self.fontsize = fontsize
+        self.fontsize = font_size
 
     def set_italic(self, slant: FontSlant):
         self.italic = slant
@@ -46,7 +88,7 @@ class Font(FontOptions):
         self.set_custom_palette_color(0, color.r(), color.g(), color.b(), color.a())
 
     def copy(self):
-        font = Font(self.family, self.fontsize)
+        font = Font(self.name, self.family, self.fontsize)
         font.set_italic(self.italic)
         font.set_bold(self.bold)
         font.set_color(self.color)
@@ -94,7 +136,7 @@ class CssValue(str):
     def __init__(self, value: str):
         super().__init__(value)
 
-    def as_color(self) -> Color:
+    def as_color(self) -> Color | None:
         if self[0] is not '#' or len(self) < 7:
             return None
         r = self[1:2]
@@ -103,7 +145,7 @@ class CssValue(str):
         return Color(hex_to_int(r), hex_to_int(g), hex_to_int(b), 1.0)
 
 
-    def as_pixel(self) -> Pixel:
+    def as_pixel(self) -> Pixel | None:
         if self.__reversed__()[:1] is not 'xp':
             return None
         return Pixel(float(str(self.__reversed__()[2:]).__reversed__().__str__()))
@@ -144,6 +186,103 @@ class CssAttribute(CssPair):
         return CssAttribute(key, value)
 
 
+class CssAttributes(list):
+
+    def __init__(self):
+        super().__init__()
+
+    def find(self, attribute_key: str) -> CssAttribute | None:
+        for attr in self:
+            if attr is attribute_key:
+                return attr
+        return None
+
+    def add(self, css_attribute: CssAttribute):
+        self.append(css_attribute)
+
+
+class CssBorderWidthProperty(Enum):
+    medium = 0,
+    thin = 1,
+    thick = 2,
+    length = 3,
+    initial = 4,
+    inherit = 5
+
+
+class CssBorderStyleProperty(Enum):
+    none = 0,
+    hidden = 1,
+    dotted = 2,
+    dashed = 3,
+    solid = 4,
+    double = 5,
+    groove = 6,
+    ridge = 7,
+    inset = 8,
+    outset = 9,
+    initial = 10,
+    inherit = 11
+
+
+class CssTextAlignProperty(Enum):
+    left = 0,
+    right = 1,
+    center = 2,
+    justify = 3,
+    initial = 4,
+    inherit = 5,
+
+
+class CssBorderWidth([int, int, int, int]):
+    def __init__(self, toppx: int = 0, bottompx: int = 0, leftpx: int = 0, rightpx: int = 0):
+        super().__init__([toppx, bottompx, leftpx, rightpx])
+
+    @staticmethod
+    def new(topbottompx: int = 0, leftrightpx: int = 0):
+        return CssBorderWidth(topbottompx, topbottompx, leftrightpx, leftrightpx)
+
+    @staticmethod
+    def new(allpx: int = 0):
+        return CssBorderWidth(allpx, allpx, allpx, allpx)
+    @staticmethod
+    def new(toppx: int = 0, bottompx: int = 0, leftpx: int = 0, rightpx: int = 0):
+        return CssBorderWidth(toppx, bottompx, leftpx, rightpx)
+
+    @staticmethod
+    def new(width: CssBorderWidthProperty = CssBorderWidthProperty.inherit):
+        return CssBorderWidth.new(1, 1) # TODO
+
+
+class CssBorder:
+    px = Pixel
+    style = CssBorderStyleProperty
+    color_code = ColorCode
+
+    def __init__(self, pixel: int = 0, style: CssBorderStyleProperty = CssBorderStyleProperty.hidden,
+                 color: ColorCode = Colors.default_black.value.to_colorcode()):
+        self.px = pixel
+        self.style = style
+        self.color_code = color
+
+
+class CssAlignment(CssAttributes):
+    margin = 0
+    border_width = CssBorderWidth
+    border_left = CssBorder
+    border_right = CssBorder
+    border_top = CssBorder
+    border_bottom = CssBorder
+
+    def __init__(self):
+        super().__init__()
+        self.border_width = CssBorderWidth()
+        self.border_left = CssBorder()
+        self.border_right = CssBorder()
+        self.border_top = CssBorder()
+        self.border_bottom = CssBorder()
+
+
 class CssClass:
     class Name(str):
         def __init__(self, cls_str: str):
@@ -154,8 +293,8 @@ class CssClass:
 
     classname: ''
     classnames: [Name]
-    htmltag: ''
-    attributes: [CssAttribute]
+    htmltag: HtmlTagBasic
+    attributes: CssAttributes
 
     @staticmethod
     def parse(cls_str: str):
@@ -209,6 +348,81 @@ class CssClass:
         self.attributes = parsed['attrs']
 
 
+class CssFont:
+    style: Font.Style
+    family: Font.Family
+    name: str
+
+    def __init__(self, font_style: Font.Style, font_family: Font.Family, font_name: str = 'arial'):
+        self.style = font_style
+        self.family = font_family
+        self.name = font_name
+
+    @staticmethod
+    def new(css_attribute: CssAttribute):
+        css_values = css_attribute.values
+
+        italic = False
+        bold = False
+        underlined = False
+        font_family = Font.Family.serif
+        name_now = False
+        font_name = 'arial'
+        for value in css_values:
+            if value.find('italic') > -1:
+                italic = True
+            if value.find('bold') > -1:
+                bold = True
+            if value.find('underlined') > -1:
+                underlined = True
+
+            if value.find('sans-serif') > -1:
+                font_family = Font.Family.sansserif
+                name_now = True
+            elif value.find('sans') > -1:
+                font_family = Font.Family.sans
+                name_now = True
+            elif value.find('monospace') > -1:
+                font_family = Font.Family.monospace
+                name_now = True
+            elif value.find('cursive') > -1:
+                font_family = Font.Family.cursive
+                name_now = True
+            if name_now:
+                pos_comma = value.find(',')
+                if pos_comma > -1:
+                    font_name = value[:pos_comma-1]
+
+        font_style = Font.Style.normal
+        if underlined and bold and italic:
+            font_style = Font.Style.italicboldunderlined
+        elif underlined and bold:
+            font_style = Font.Style.boldunderlined
+        elif underlined and italic:
+            font_style = Font.Style.italicunderlined
+        elif bold and italic:
+            font_style = Font.Style.italicbold
+        elif bold:
+            font_style = Font.Style.bold
+        elif italic:
+            font_style = Font.Style.italic
+        elif underlined:
+            font_style = Font.Style.underlined
+
+        return CssFont(font_style, font_family, font_name)
+
+    @staticmethod
+    def new(css_class: CssClass):
+        # Find font-style, font-family, font-size
+        font_style = css_class.attributes.find('font-style')
+        font_size = css_class.attributes.find('font-size')
+        font_family = css_class.attributes.find('font-family')
+
+        css_attribute_value = ifnonot(font_style) + ' ' + ifnonot(font_size) + ' ' + ifnonot(font_family)
+        css_attribute = CssAttribute('font', css_attribute_value)
+        return CssFont.new(css_attribute)
+
+
 class CssAttributeSelector:
     funcname = ''
     eq = None
@@ -228,11 +442,14 @@ class CssAttributeSelector:
         return dict(funcname=funcname, eqstr=eqstr)
 
 
-class CssClassSelector:
+class CssSelector:
     attr = ''
 
     def __init__(self, cls_str: str):
         self.attr = self.parse(cls_str)
+
+    def eval(self, html: HtmlTagBasic):
+        return css_selectors.eval(self.attr, html)
 
     @staticmethod
     def parse(cls_str: str) -> str:
@@ -245,15 +462,6 @@ class CssClassSelector:
             else:
                 return reststr[:idx-1]
         return str()
-
-
-class CssEquation:
-
-    def __init__(self, eq_str: str):
-        pass
-
-    @staticmethod
-    def parse(self, eq_str: str):
 
 
 class CssFile:
@@ -286,6 +494,27 @@ class CssFile:
         if os.path.isfile(path):
             with open(path, 'r') as f:
                 self.classes = self.parse(f.read())
+
+
+class Css:
+    classes = [CssClass]
+    attributes = [CssAttribute]
+
+    def __init__(self):
+        pass
+
+    def append(self, css_file: CssFile):
+        pass
+
+
+class CssContext(Context):
+    surface = None
+    css = None
+    
+    def __init__(self, surface: Surface, css: Css):
+        super().__init__(surface)
+        self.surface = surface
+        self.css = css
 
 
 class CssSurfaceModifier:
