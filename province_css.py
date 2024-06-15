@@ -366,17 +366,19 @@ class CssFont:
     style: Font.Style
     family: Font.Family
     name: str
+    fontsize: float
 
-    def __init__(self, font_style: Font.Style, font_family: Font.Family, font_name: str = 'arial'):
+    def __init__(self, font_style: Font.Style, font_family: Font.Family, font_name: str = 'arial', fontsize: float):
         self.style = font_style
         self.family = font_family
         self.name = font_name
+        self.fontsize = fontsize
 
     def to_font(self) -> Font:
         return Font(self.name, self.family)
 
     @staticmethod
-    def new(css_attribute: CssAttribute):
+    def new(css_attribute: CssAttribute, current_font_size: float):
         css_values = css_attribute.values
 
         italic = False
@@ -385,6 +387,7 @@ class CssFont:
         font_family = Font.Family.serif
         name_now = False
         font_name = 'arial'
+        fontsize = 11.2
         for value in css_values:
             if value.find('italic') > -1:
                 italic = True
@@ -405,6 +408,10 @@ class CssFont:
             elif value.find('cursive') > -1:
                 font_family = Font.Family.cursive
                 name_now = True
+            elif value.find('em') is not -1:
+                fontsize = Css.em(current_font_size, value)
+            elif value.find('%') is not -1:
+                fontsize = Css.font_size_percent(current_font_size, value)
             if name_now:
                 pos_comma = value.find(',')
                 if pos_comma > -1:
@@ -426,10 +433,10 @@ class CssFont:
         elif underlined:
             font_style = Font.Style.underlined
 
-        return CssFont(font_style, font_family, font_name)
+        return CssFont(font_style, font_family, font_name, fontsize)
 
     @staticmethod
-    def new(css_class: CssClass):
+    def new(css_class: CssClass, current_font_size: float):
         # Find font-style, font-family, font-size
         font_style = css_class.attributes.find('font-style')
         font_size = css_class.attributes.find('font-size')
@@ -437,7 +444,7 @@ class CssFont:
 
         css_attribute_value = ifnonot(font_style) + ' ' + ifnonot(font_size) + ' ' + ifnonot(font_family)
         css_attribute = CssAttribute('font', css_attribute_value)
-        return CssFont.new(css_attribute)
+        return CssFont.new(css_attribute, current_font_size)
 
 
 class CssAttributeSelector:
@@ -647,11 +654,24 @@ class CssSurfaceModifier:
             # Save the original text parameters
             tff = self.ctx.get_font_face()
             tfo = self.ctx.get_font_options()
-            tfs = self.ctx.get
+            tfs = self.ctx.text_size()
 
             # Modify the text parameters
             font = css_font.to_font()
-            # TODO
+            self.ctx.set_font_size(font.fontsize)
+            self.ctx.set_font_options(font)
+
+            # TODO: Positioning and alignment
+
+            # Make text
+            self.ctx.show_text(txt)
+
+            # TODO: Normal alignment parameters with offset of text length
+
+            # Reset the parameters to the originals
+            self.ctx.set_font_face(tff)
+            self.ctx.set_font_options(tfo)
+            self.ctx.set_font_size(tfs)
 
     def draw_line(self, hend: float, vend: float, linedef: LineDefinition = LineDefinition()):
         # Modify line width, if modifier
