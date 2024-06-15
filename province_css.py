@@ -131,6 +131,15 @@ class Pixel(float):
         super().__init__(px)
 
 
+class PixelPos:
+    x = Pixel
+    y = Pixel
+
+    def __init__(self, x: float, y: float):
+        self.x = Pixel(x)
+        self.y = Pixel(y)
+
+
 class CssValue(str):
     def __init__(self, value: str):
         super().__init__(value)
@@ -242,6 +251,11 @@ class CssTextAlignProperty(Enum):
 class CssBorderWidth([int, int, int, int]):
     def __init__(self, toppx: int = 0, bottompx: int = 0, leftpx: int = 0, rightpx: int = 0):
         super().__init__([toppx, bottompx, leftpx, rightpx])
+
+    def __getitem__(self, item: int):
+        if -1 < item < 4:
+            return self[item]
+        return -1
 
     @staticmethod
     def new(topbottompx: int = 0, leftrightpx: int = 0):
@@ -613,8 +627,19 @@ class CssContext(Context):
     def text_size(self) -> float:
         return self.font_extents()[2]
 
+    def current_size(self) -> PixelPos:
+        pos = self.current_pos()
+        # (x1, y1, x2, y2)
+        width = self.clip_extents()
+
+        return PixelPos(width[1] - width[2] - pos.x, width[3] - width[1] - pos.y)
+
     def add_css(self, css: Css):
         self.css.add_css(css)
+
+    def current_pos(self) -> PixelPos:
+        current_point = self.get_current_point()
+        return PixelPos(current_point[0], current_point[1])
 
     @staticmethod
     # Returns a dict with inherited attributes and classes 'dict(inh_attributes=inherited, inh_classes=inherited_cls)'
@@ -630,6 +655,29 @@ class CssContext(Context):
                         inherited += attr
                         inherited_cls += css_class_inheriting
         return dict(inh_attributes=inherited, inh_classes=inherited_cls)
+
+    def alignment_surface(self, css_alignment: CssAlignment) -> Surface:
+
+        current_px = self.current_pos()
+        align_x_origin = css_alignment.border_width[0] + css_alignment.border_top.px + css_alignment.border_left.px
+        align_y_origin = css_alignment.border_width[2] + css_alignment.border_top.px + css_alignment.border_left.px
+
+        align_x_margin = (css_alignment.border_width[2] + css_alignment.border_width[3]
+                         + css_alignment.border_right.px + css_alignment.border_left.px)
+        align_y_margin = (css_alignment.border_width[1] + css_alignment.border_width[1]
+                         + css_alignment.border_bottom.px + css_alignment.border_top.px)
+
+        width = self.current_size()
+
+        surface = self.surface.create_for_rectangle(current_px.x + align_x_origin, current_px.y + align_y_origin,
+                                                    current_px.x + width.x - align_x_margin,
+                                                    current_px.y + width.y - align_y_margin)
+        surface.set_device_offset(align_x_margin, align_y_margin)
+
+        return surface
+
+    def alignment_context(self, css_alignment: CssAlignment):
+        return CssContext(self.alignment_surface(css_alignment), self.css)
 
 
 class CssSurfaceModifier:
@@ -647,31 +695,34 @@ class CssSurfaceModifier:
     def set_rgba(self, color: Color):
         self.ctx.set_source_rgba(color.r(), color.g(), color.b(), color.a())
 
-    def text(self, txt: str, css_font: CssFont = None):
+    def text(self, txt: str, css_font: CssFont = None, css_alignment: CssAlignment = None):
         if css_font is None:
             self.ctx.show_text(txt)
+            self.surface.flush()
         else:
+            # Positioning and alignment
+            srfc = self.ctx.alignment_surface(css_alignment)
+            ctx = CssContext(srfc, self.ctx.css)
+
             # Save the original text parameters
-            tff = self.ctx.get_font_face()
-            tfo = self.ctx.get_font_options()
-            tfs = self.ctx.text_size()
+            tff = ctx.get_font_face()
+            tfo = ctx.get_font_options()
+            tfs = ctx.text_size()
 
             # Modify the text parameters
             font = css_font.to_font()
-            self.ctx.set_font_size(font.fontsize)
-            self.ctx.set_font_options(font)
-
-            # TODO: Positioning and alignment
+            ctx.set_font_size(font.fontsize)
+            ctx.set_font_options(font)
 
             # Make text
-            self.ctx.show_text(txt)
-
-            # TODO: Normal alignment parameters with offset of text length
+            ctx.show_text(txt)
 
             # Reset the parameters to the originals
-            self.ctx.set_font_face(tff)
-            self.ctx.set_font_options(tfo)
-            self.ctx.set_font_size(tfs)
+            ctx.set_font_face(tff)
+            ctx.set_font_options(tfo)
+            ctx.set_font_size(tfs)
+
+            srfc.get_device().finish()
 
     def draw_line(self, hend: float, vend: float, linedef: LineDefinition = LineDefinition()):
         # Modify line width, if modifier
@@ -694,6 +745,8 @@ class CssSurfaceModifier:
         self.ctx.set_line_width(lw)
         self.ctx.set_line_cap(lcap)
         self.ctx.set_line_join(ljoin)
+
+        self.surface.flush()
 
 
 class TableModifier(CssSurfaceModifier):
