@@ -1,5 +1,6 @@
 
 from abc import ABC, abstractmethod
+import operator
 import os.path
 from typing import Any, Callable
 
@@ -16,6 +17,27 @@ def ifnonot(o: Any) -> str:
     if o is not None:
         return str(o)
     return str()
+
+
+def percent(p: str) -> float:
+    if len(p) is 0:
+        return 1.0
+    elif p[len(p)-1] is '%':
+        return int(p[:len(p)-2])/100
+    else:
+        return 1.0
+
+
+def op_to_func_numeric(opstr: str) -> Callable[[Any, Any], Any] | None:
+    if opstr.find('/'):
+        return operator.__truediv__
+    elif opstr.find('*'):
+        return operator.__mul__
+    elif opstr.find('+'):
+        return operator.__add__
+    elif opstr.find('-'):
+        return operator.__sub__
+    return None
 
 
 def intersection(l1: list, l2: list) -> list:

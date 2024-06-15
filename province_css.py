@@ -2,7 +2,7 @@
 import os.path
 from enum import Enum
 from .html import HtmlTag
-from .util import hex_to_int, int_to_hex, ifnonot
+from .util import hex_to_int, int_to_hex, ifnonot, percent, op_to_func_numeric
 from .utilcss import HtmlTagBasic, css_functions, css_operators, css_selectors
 from ..pycairo.cairo import FontSlant, FontWeight, FontOptions, LineCap, LineJoin, Context, Surface
 
@@ -55,7 +55,6 @@ class Font(FontOptions):
         italicunderlined = 5,
         boldunderlined = 6,
         italicboldunderlined = 7
-
 
     class Family:
         serif = 0,
@@ -144,7 +143,6 @@ class CssValue(str):
         b = self[5:6]
         return Color(hex_to_int(r), hex_to_int(g), hex_to_int(b), 1.0)
 
-
     def as_pixel(self) -> Pixel | None:
         if self.__reversed__()[:1] is not 'xp':
             return None
@@ -174,22 +172,29 @@ class CssPair(str):
 
 
 class CssAttribute(CssPair):
-    def __init__(self, key: str, value: str):
+    css_class = None
+
+    def __init__(self, key: str, value: str, css_class = None):
         super().__init__(key, value)
+        self.css_class = css_class
 
     @staticmethod
-    def parse(lane: str):
+    def parse(lane: str, css_class = None):
         pos_key_end = lane.find(':')
         pos_value_end = lane.find(';', pos_key_end)
         key = lane[:pos_key_end-1]
         value = lane[pos_key_end+2:pos_value_end-1]
-        return CssAttribute(key, value)
+        return CssAttribute(key, value, css_class)
 
 
 class CssAttributes(list):
+    css_class = None
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, css_attributes: [CssAttribute] = [], css_class = None):
+        super().__init__(css_attributes)
+        self.css_class = css_class
+        for css_attr in css_attributes:
+            css_attr.css_class = css_class
 
     def find(self, attribute_key: str) -> CssAttribute | None:
         for attr in self:
@@ -295,6 +300,8 @@ class CssClass:
     classnames: [Name]
     htmltag: HtmlTagBasic
     attributes: CssAttributes
+    inheriting: []
+    inherits: []
 
     @staticmethod
     def parse(cls_str: str):
@@ -329,23 +336,30 @@ class CssClass:
         return dict(classes=cls_str[:first_html_tag-2], classnames=classnames, html_tags=cls_str[first_html_tag:])
 
     @staticmethod
-    def parse_attributes(self, attr_str: str) -> [CssAttribute]:
+    def parse_attributes(attr_str: str, css_class = None) -> [CssAttribute]:
         # Find all needed parameters
         attr_list = attr_str.split('\n')
         lst = [CssAttribute]
 
         # Parse
         for attr in attr_list:
-            lst += CssAttribute.parse(attr)
+            lst += CssAttribute.parse(attr, css_class)
 
         return lst
 
-    def __init__(self, cls_str: str):
+    def register_inheriting(self, css_class):
+        self.inheriting += css_class
+        css_class.inherits += self
+
+    def __init__(self, cls_str: str, inherits: [] = [], inheriting: [] = []):
         parsed = self.parse(cls_str)
         self.classname = parsed['cssclass']['classes']
         self.classnames = parsed['cssclass']['classnames']
         self.htmltag = parsed['cssclass']['html_tags']
-        self.attributes = parsed['attrs']
+
+        self.attributes = CssAttributes(parsed['attrs'], self)
+        self.inheriting = inheriting
+        self.inherits = inherits
 
 
 class CssFont:
@@ -357,6 +371,9 @@ class CssFont:
         self.style = font_style
         self.family = font_family
         self.name = font_name
+
+    def to_font(self) -> Font:
+        return Font(self.name, self.family)
 
     @staticmethod
     def new(css_attribute: CssAttribute):
@@ -426,6 +443,7 @@ class CssFont:
 class CssAttributeSelector:
     funcname = ''
     eq = None
+
     def __init__(self, attr_str: str):
         attrs = self.parse(attr_str)
         self.funcname = attrs['funcname']
@@ -498,13 +516,82 @@ class CssFile:
 
 class Css:
     classes = [CssClass]
-    attributes = [CssAttribute]
+    paths = [str]
 
     def __init__(self):
         pass
 
+    # Registers new_css_class at every known class that is inheriting from and returns
+    # the number of inherits for new_css_class
+    def add_css_class(self, new_css_class: CssClass) -> int:
+        # Register inheriting at the parent classes, that are inherited
+        inherits = 0
+        for css_class in self.classes:
+            for css_classname in new_css_class.classnames:
+                if css_classname in css_class.classnames:
+                    css_class.register_inheriting(new_css_class)
+                    inherits += 1
+        self.classes += new_css_class
+        return inherits
+
+    def add_css(self, css: Css) -> int:
+        inheriting = 0
+        # Register at foreign class, if new inheriting class
+        for new_css_class in css.classes:
+            inheriting += self.add_css_class(new_css_class)
+        self.paths += css.paths
+        return inheriting
+
+    def add_css(self, css: [CssClass], paths: [str]) -> int:
+        css_classes = Css()
+        css_classes.classes = css
+        css_classes.paths += paths
+        return self.add_css(css_classes)
+
     def append(self, css_file: CssFile):
-        pass
+        return self.add_css(css_file.classes, css_file.path)
+
+    @staticmethod
+    def em(current_font_size: float, em_str: str) -> float:
+        pos_em = em_str.find('em')
+        if pos_em is -1:
+            return current_font_size
+        font_size = str(em_str[:pos_em-1])
+        if font_size.isnumeric():
+            font_size_percent = float(font_size)
+            return font_size_percent * current_font_size
+        elif font_size[:len(font_size)-1] is '%':
+            return 0.01 * int(font_size[:len(font_size)-2]) * current_font_size
+        else:
+            return current_font_size
+
+    @staticmethod
+    def font_size_percent(current_font_size: float, font_size_param: str) -> float:
+        # Find pos of percent sign
+        pos_percentage = font_size_param.find('%')
+        if pos_percentage is -1:
+            return current_font_size
+
+        # Compute the number behind, if any
+        fsr = str(font_size_param.__reversed__())
+        fsrn = str()
+        fsrop = str()
+        for idx, fn in enumerate(fsr):
+            if fsr[idx].isnumeric():
+                fsrn += fsr[idx]
+            elif fn is '%':
+                break
+            else:
+                fsrop += fsr[idx]
+
+        # If no calculation follows, numeric like Css.em
+        prc = percent(font_size_param[:pos_percentage])
+        if len(fsrn) is 0 or len(fsrop) is 0 or fsrop.__contains__(len(fsrop)*' '):
+            return Css.em(current_font_size, str(prc) + 'em')
+
+        # Find out the operator and calculate
+        op = op_to_func_numeric(str(fsrop.__reversed__()))
+        return  op(prc, Css.em(current_font_size, str(fsrn.__reversed__()) + 'em'))
 
 
 class CssContext(Context):
@@ -516,13 +603,35 @@ class CssContext(Context):
         self.surface = surface
         self.css = css
 
+    def text_size(self) -> float:
+        return self.font_extents()[2]
+
+    def add_css(self, css: Css):
+        self.css.add_css(css)
+
+    @staticmethod
+    # Returns a dict with inherited attributes and classes 'dict(inh_attributes=inherited, inh_classes=inherited_cls)'
+    def inherited(self, css_attribute: CssAttribute, css_class: CssClass) -> dict:
+        inherited = []
+        inherited_cls = []
+        for css_classname in css_class.classnames:
+            attr_name = str(css_attribute)
+            for inheriting in css_attribute.css_class.inheriting:
+                for css_class_inheriting in inheriting:
+                    attr = css_class_inheriting.attributes.find(attr_name)
+                    if attr is not None:
+                        inherited += attr
+                        inherited_cls += css_class_inheriting
+        return dict(inh_attributes=inherited, inh_classes=inherited_cls)
+
 
 class CssSurfaceModifier:
-    def __init__(self, surface: Surface, context: Context = None):
+    def __init__(self, surface: Surface, css: Css, context: CssContext = None):
         self.surface = surface
         if context is None:
-            self.ctx = Context(surface)
+            self.ctx = CssContext(surface, css)
         else:
+            context.add_css(css)
             self.ctx = context
 
     def set_rgb(self, color: Color):
@@ -530,6 +639,19 @@ class CssSurfaceModifier:
 
     def set_rgba(self, color: Color):
         self.ctx.set_source_rgba(color.r(), color.g(), color.b(), color.a())
+
+    def text(self, txt: str, css_font: CssFont = None):
+        if css_font is None:
+            self.ctx.show_text(txt)
+        else:
+            # Save the original text parameters
+            tff = self.ctx.get_font_face()
+            tfo = self.ctx.get_font_options()
+            tfs = self.ctx.get
+
+            # Modify the text parameters
+            font = css_font.to_font()
+            # TODO
 
     def draw_line(self, hend: float, vend: float, linedef: LineDefinition = LineDefinition()):
         # Modify line width, if modifier
