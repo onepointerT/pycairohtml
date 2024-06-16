@@ -2,9 +2,9 @@
 import os.path
 from enum import Enum
 from .html import HtmlTag
-from .util import hex_to_int, int_to_hex, ifnonot, percent, op_to_func_numeric
+from .util import hex_to_int, int_to_hex, ifnonot, percent, op_to_func_numeric, PathBasic, Url
 from .utilcss import HtmlTagBasic, css_functions, css_operators, css_selectors
-from ..pycairo.cairo import FontSlant, FontWeight, FontOptions, LineCap, LineJoin, Context, Surface
+from ..pycairo.cairo import FontSlant, FontWeight, FontOptions, LineCap, LineJoin, Context, ImageSurface, Format, Surface, RectangleInt
 
 
 class Color:
@@ -618,11 +618,17 @@ class Css:
 class CssContext(Context):
     surface = None
     css = None
+    fetch_buffer = None
+    img_surfaces = [ImageSurface]
     
-    def __init__(self, surface: Surface, css: Css):
+    def __init__(self, surface: Surface, css: Css, buffer_dir: str):
         super().__init__(surface)
         self.surface = surface
         self.css = css
+        if not os.path.exists(buffer_dir)
+            os.mkdir(buffer_dir)
+        self.fetch_buffer = Url.FetchBuffer(buffer_dir)
+        self.img_surfaces = []
 
     def text_size(self) -> float:
         return self.font_extents()[2]
@@ -656,6 +662,24 @@ class CssContext(Context):
                         inherited_cls += css_class_inheriting
         return dict(inh_attributes=inherited, inh_classes=inherited_cls)
 
+    def alignment(self, css_alignment: CssAlignment) -> RectangleInt:
+        current_px = self.current_pos()
+
+        align_x_origin = css_alignment.border_width[0] + css_alignment.border_top.px + css_alignment.border_left.px
+        align_y_origin = css_alignment.border_width[2] + css_alignment.border_top.px + css_alignment.border_left.px
+
+        align_x_margin = (css_alignment.border_width[2] + css_alignment.border_width[3]
+                          + css_alignment.border_right.px + css_alignment.border_left.px)
+        align_y_margin = (css_alignment.border_width[1] + css_alignment.border_width[1]
+                          + css_alignment.border_bottom.px + css_alignment.border_top.px)
+
+        width = self.current_size()
+
+        return RectangleInt(current_px.x + align_x_origin, current_px.y + align_y_origin,
+                            current_px.x + width.x - align_x_margin,
+                            current_px.y + width.y - align_y_margin)
+
+
     def alignment_surface(self, css_alignment: CssAlignment) -> Surface:
 
         current_px = self.current_pos()
@@ -663,9 +687,9 @@ class CssContext(Context):
         align_y_origin = css_alignment.border_width[2] + css_alignment.border_top.px + css_alignment.border_left.px
 
         align_x_margin = (css_alignment.border_width[2] + css_alignment.border_width[3]
-                         + css_alignment.border_right.px + css_alignment.border_left.px)
+                          + css_alignment.border_right.px + css_alignment.border_left.px)
         align_y_margin = (css_alignment.border_width[1] + css_alignment.border_width[1]
-                         + css_alignment.border_bottom.px + css_alignment.border_top.px)
+                          + css_alignment.border_bottom.px + css_alignment.border_top.px)
 
         width = self.current_size()
 
@@ -694,6 +718,24 @@ class CssSurfaceModifier:
 
     def set_rgba(self, color: Color):
         self.ctx.set_source_rgba(color.r(), color.g(), color.b(), color.a())
+
+    def picture(self, imgsrc: str | Url, css_alignment: CssAlignment) -> ImageSurface:
+        if type(imgsrc) is not Url:
+            imgsrc = Url(imgsrc)
+
+        img = imgsrc.fetch(imgsrc.filename(), self.ctx.fetch_buffer)
+
+        alignment = self.ctx.alignment(css_alignment)
+        imgsurface = self.surface.map_to_image(alignment)
+        imgsurface.create_from_png(img.read())
+        imgsurface.finish()
+        self.surface.flush()
+
+        # TODO opaque etc.
+
+        self.ctx.img_surfaces += imgsurface
+
+        return imgsurface
 
     def text(self, txt: str, css_font: CssFont = None, css_alignment: CssAlignment = None):
         if css_font is None:
