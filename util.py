@@ -2,7 +2,12 @@
 from abc import ABC, abstractmethod
 import operator
 import os.path
-from typing import Any, Callable
+import re
+import sys
+import shutil
+import tempfile
+import urllib.request
+from typing import Any, AnyStr, Callable
 
 
 def hex_to_int(hex: str) -> int:
@@ -57,6 +62,178 @@ def notin(l1: list, l2: list) -> list:
             match += e
             continue
     return match
+
+
+class PathBasic(str):
+    prefix: str
+
+    def __init__(self, pathstr: str, prefix: str = str()):
+        super().__init__(pathstr)
+        self.prefix = prefix
+
+    def __str__(self):
+        return str(super())
+
+
+class DirectoryPath(PathBasic):
+    path: str
+
+    def __add__(self, other):
+        if sys.platform is 'win32' or 'win64':
+            return self + '\\' + other
+        return self + '/' + other
+
+    @staticmethod
+    def parse(pathstr: str) -> dict:
+        dct = dict()
+        if sys.platform is 'win32' or 'win64':
+            pos_prefix_end = pathstr.find(':\\')
+            if pos_prefix_end > -1:
+                dct['prefix'] = pathstr[:pos_prefix_end-1]
+                dct['path'] = pathstr[pos_prefix_end+2:]
+            elif pathstr.startswith('\\\\'): # e.g. \\wsl.localhost\Ubuntu
+                pos_prefix_start = pathstr.find('\\\\')
+                pos_prefix_end = pathstr.find('\\', pos_prefix_start)
+                dct['prefix'] = pathstr[:pos_prefix_end+1]
+                if len(pathstr) > pos_prefix_end+2: # e.g. \\wsl.localhost\Ubuntu
+                    dct['path'] = pathstr[pos_prefix_end+2]
+                else: # e.g. \\wsl.localhost\
+                    dct['path'] = str()
+            else:  # Generic path without prefix, e.g. Home, Network, etc.
+                dct['prefix'] = str()
+                dct['path'] = pathstr
+        else:
+            pos_prefix_end = pathstr.find('://')
+            if pos_prefix_end > -1:
+                dct['prefix'] = pathstr[:pos_prefix_end-1]
+                dct['path'] = pathstr[pos_prefix_end+3:]
+            elif pathstr.startswith('/'):
+                dct['prefix'] = '/'
+                dct['path'] = pathstr
+            elif pathstr.startswith('~'):
+                dct['prefix'] = '~/'
+                dct['path'] = pathstr
+            else:
+                dct['prefix'] = str()
+                dct['path'] = pathstr
+        return dct
+
+    def __init__(self, pathstr: str):
+        super().__init__(pathstr)
+        dct = self.parse(pathstr)
+        self.prefix = dct['prefix']
+        self.path = dct['path']
+
+    def __str__(self):
+        return str(super())
+
+
+class FilePath(DirectoryPath):
+    filename: str
+    directory: super()
+
+    @staticmethod
+    def parse(pathstr: str) -> dict:
+        dct = dict()
+        if sys.platform is 'win32' or 'win64':
+            pos_filename_start = pathstr.rfind('\\')
+            dct['filename'] = pathstr[pos_filename_start+1:]
+        else:
+            pos_filename_start = pathstr.rfind('/')
+            dct['filename'] = pathstr[pos_filename_start+1:]
+        return dct
+
+    def __init__(self, pathstr: str):
+        super().__init__(pathstr)
+        dct = self.parse(pathstr)
+        self.filename = dct['filename']
+
+    def __str__(self):
+        return str(self.directory + self.filename)
+
+    def read(self) -> AnyStr:
+        with open(str(self.directory + self.filename), 'r') as f:
+            return f.read()
+
+
+class Url(PathBasic):
+    domain: str
+    domain_prefix: str
+    tld: str
+    urlpath: str
+
+    @staticmethod
+    def parse(urlstr: str) -> dict:
+        dct = dict()
+        pos_prefix_end = urlstr.find('://')
+        if pos_prefix_end < 0:
+            pos_prefix_end = -3
+        else:
+            dct['prefix'] = urlstr[:pos_prefix_end-1]
+        end_domain = re.findall('\\..*/', urlstr)
+        if len(end_domain) is 0:
+            end_domain = re.findall('\\..*', urlstr)
+            dct['tld'] = end_domain[len(end_domain)-1]
+            dct['urlpath'] = str()
+        else:
+            dct['tld'] = end_domain[len(end_domain)-1]
+            pos_url_path = urlstr.find(dct['tld']) + len(dct['tld']) + 1
+            dct['urlpath'] = urlstr[pos_url_path:]
+        pos_tld = urlstr.find(dct['tld'])
+        pos_domain_prefix = urlstr.rfind('.', pos_tld)
+        if pos_domain_prefix > -1:  # There is a domain prefix
+            dct['domain_prefix'] = urlstr[pos_prefix_end+3:pos_domain_prefix-1]
+            dct['domain'] = urlstr[pos_domain_prefix:pos_tld+len(dct['tld'])-1]
+        else:  # There is just a domain given, like example.com
+            dct['domain'] = urlstr[pos_prefix_end+3:pos_tld+len(dct['tld'])-1]
+            dct['domain_prefix'] = str()
+
+        return dct
+
+    class FetchBuffer(DirectoryPath):
+        files = [FilePath]
+
+        def __init__(self, pathstr: str):
+            super().__init__(pathstr)
+            self.files = []
+
+        def add_file(self, filename) -> FilePath:
+            file = FilePath(self + filename)
+            if os.path.exists(self + filename) or self + filename in self.files:
+                return self.files[self.files.index(self + filename)]
+            self.files.append(file)
+            return file
+
+        def get_file(self, filename) -> FilePath:
+            for file in self.files:
+                if file.filename is filename:
+                    return file
+            return self.add_file(filename)
+
+    def __init__(self, urlstr: str):
+        super().__init__(urlstr)
+        dct = self.parse(urlstr)
+        self.domain = dct['domain']
+        self.domain_prefix = dct['domain_prefix']
+        self.prefix = dct['prefix']
+        self.tld = dct['tld']
+        self.urlpath = dct['urlpath']
+
+    def __str__(self):
+        prefix = self.prefix + '://' if len(self.prefix) > 0 else ''
+        suffix = '/' + self.urlpath if len(self.urlpath) > 0 else ''
+        return prefix + self.domain + suffix
+
+    def filename(self):
+        pos_filename_start = str('/' + self.urlpath).rfind('/') if len(self.urlpath) > 0 else 0
+        return str() if len(self.urlpath) is 0 else str(self.urlpath[pos_filename_start:])
+
+    def fetch(self, filename: str, fetch_buffer: FetchBuffer) -> FilePath:
+        fetch_file = fetch_buffer.get_file(filename)
+        with urllib.request.urlopen(self) as response:
+            with tempfile.NamedTemporaryFile(dir=fetch_file.directory, delete=False) as tmp_file:
+                shutil.copyfileobj(response, tmp_file)
+        return fetch_file
 
 
 class HtmlTagBasic(str):
